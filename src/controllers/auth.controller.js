@@ -3,7 +3,6 @@ const jwt = require('jsonwebtoken');
 const usuariosRepository = require('../repositories/usuariosRepository');
 
 // Registro de usuario
-// ...existing code...
 const registrarUsuario = async (req, res) => {
   const { correo, nombre, contrasena, rol } = req.body;
   if (!correo.endsWith('@espe.edu.ec')) {
@@ -13,13 +12,22 @@ const registrarUsuario = async (req, res) => {
     const hash = await bcrypt.hash(contrasena, 10);
     // Usa el rol recibido o 'normal' por defecto
     const usuario = await usuariosRepository.crearUsuario({ correo, nombre, contrasena: hash, rol: rol || 'normal' });
+
+    // Genera el token igual que en login
+    const token = jwt.sign(
+      { id: usuario.id, rol: usuario.rol },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
+    );
+
     res.status(201).json({
       usuario: {
         id: usuario.id,
         correo: usuario.correo,
         nombre: usuario.nombre,
         rol: usuario.rol
-      }
+      },
+      token // <-- Devuelve el token aquí
     });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') {
@@ -28,7 +36,6 @@ const registrarUsuario = async (req, res) => {
     res.status(400).json({ message: 'Error al registrar usuario', error: e.message });
   }
 };
-// ...existing code...
 // Login de usuario
 const loginUsuario = async (req, res) => {
   try {
