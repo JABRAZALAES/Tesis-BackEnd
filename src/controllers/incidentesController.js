@@ -1,4 +1,8 @@
 const { dbGestionNovedades } = require('../config/db');
+const fs = require('fs');
+const path = require('path');
+const nodemailer = require('nodemailer');
+
 
 const crearIncidente = async (req, res) => {
   try {
@@ -20,9 +24,6 @@ const crearIncidente = async (req, res) => {
       inconvenienteIdFinal = result.insertId;
     }
 
-
-
-
     // Buscar el periodo académico correspondiente a la fechaReporte
     const [periodoRows] = await dbGestionNovedades.query(
       'SELECT id FROM periodos_academicos WHERE ? BETWEEN fecha_inicio AND fecha_fin LIMIT 1',
@@ -34,6 +35,40 @@ const crearIncidente = async (req, res) => {
       'INSERT INTO incidentes (descripcion, fecha_reporte, hora_reporte, laboratorio_id, computadora_id, urlFoto, estadoId, usuarioId, inconveniente_id, periodo_academico_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [descripcion, fechaReporte, horaReporte, laboratorio_id, computadora_id, urlFoto, estadoId, usuarioId, inconvenienteIdFinal, periodo_academico_id]
     );
+
+    // --- Notificación por correo ---
+    // Obtener datos del usuario
+    const [usuarioRows] = await dbGestionNovedades.query(
+      'SELECT nombre, correo FROM usuarios WHERE id = ?',
+      [usuarioId]
+    );
+    const usuario = usuarioRows[0];
+
+    // Leer plantilla y reemplazar marcadores
+    const templatePath = path.join(__dirname, '../templates/incidenteCreado.html');
+    let html = fs.readFileSync(templatePath, 'utf8');
+    html = html
+      .replace('{{nombre}}', usuario.nombre)
+      .replace('{{descripcion}}', descripcion)
+      .replace('{{fecha}}', fechaReporte)
+      .replace('{{hora}}', horaReporte)
+      .replace('{{laboratorio}}', laboratorio_id);
+
+    // Enviar correo
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: usuario.correo,
+      subject: 'Incidente registrado',
+      html
+    });
 
     res.status(201).json({
       success: true,
@@ -113,7 +148,6 @@ const obtenerMisIncidentes = async (req, res) => {
 
 const actualizarEstadoIncidente = async (req, res) => {
   try {
-    // Solo permitir si el usuario es admin, tecnico o jefe
     if (!['admin', 'tecnico', 'jefe'].includes(req.user.rol.toLowerCase())) {
       return res.status(403).json({ message: 'No autorizado' });
     }
@@ -121,7 +155,6 @@ const actualizarEstadoIncidente = async (req, res) => {
     const { id } = req.params;
     const { estadoId, detalle_resolucion } = req.body;
 
-    // Solo jefe o tecnico pueden aprobar o anular
     if (
       ['EST_APROBADO', 'EST_ANULADO','EST_ESCALADO', 'EST_MANTENIMIENTO'].includes(estadoId) &&
       !['tecnico', 'jefe'].includes(req.user.rol.toLowerCase())
@@ -129,10 +162,8 @@ const actualizarEstadoIncidente = async (req, res) => {
       return res.status(403).json({ message: 'Solo jefe o técnico pueden aprobar o anular' });
     }
 
-    // Si el estado es diferente de pendiente, actualizar periodo_academico_id al activo
     let query, params;
     if (estadoId !== 'EST_PENDIENTE') {
-      // Busca el periodo académico activo según la fecha actual
       const [periodoRows] = await dbGestionNovedades.query(
         'SELECT id FROM periodos_academicos WHERE CURDATE() BETWEEN fecha_inicio AND fecha_fin LIMIT 1'
       );
@@ -157,13 +188,54 @@ const actualizarEstadoIncidente = async (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: 'Incidente no encontrado' });
     }
+
+    // --- Notificación por correo ---
+    // Obtener correo y nombre del usuario dueño del incidente
+    const [usuarioRows] = await dbGestionNovedades.query(
+      `SELECT u.correo, u.nombre 
+       FROM usuarios u 
+       JOIN incidentes i ON u.id = i.usuarioId 
+       WHERE i.id = ?`,
+      [id]
+    );
+    const usuario = usuarioRows[0];
+
+    // Obtener nombre del estado
+    const [estadoRows] = await dbGestionNovedades.query(
+      'SELECT nombre FROM estados WHERE id = ?',
+      [estadoId]
+    );
+    const estadoNombre = estadoRows.length > 0 ? estadoRows[0].nombre : estadoId;
+
+    // Leer plantilla y reemplazar marcadores
+    const templatePath = path.join(__dirname, '../templates/incidenteEstado.html');
+    let html = fs.readFileSync(templatePath, 'utf8');
+    html = html
+      .replace('{{nombre}}', usuario.nombre)
+      .replace('{{estado}}', estadoNombre)
+      .replace('{{detalle}}', detalle_resolucion || 'Sin detalles adicionales.');
+
+    // Enviar correo
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: usuario.correo,
+      subject: 'Actualización de estado de tu incidente',
+      html
+    });
+
     res.json({ message: 'Estado y detalle actualizados correctamente' });
   } catch (error) {
     res.status(500).json({ message: 'Error al actualizar estado', error: error.message });
   }
 };
-
-
 
 
 // Borrar incidente (solo el dueño, admin, tecnico o jefe)

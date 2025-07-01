@@ -1,8 +1,9 @@
 const ObjetosPerdidoosRepository = require('../repositories/ObjetosPerdidoosRepository');
 const objetosPerdidosService = require('../services/objetosPerdidosService'); // Importa el servicio
+const fs = require('fs');
+const path = require('path');
+const nodemailer = require('nodemailer');
 
-
-// Crear objeto perdido
 const crearObjetoPerdido = async (req, res) => {
   try {
     const usuarioId = req.user.id;
@@ -10,10 +11,10 @@ const crearObjetoPerdido = async (req, res) => {
       nombre_objeto,
       descripcion,
       fecha_perdida,
-      hora_perdida, // Si se usa, debe venir del body
+      hora_perdida,
       lugar,
       laboratorio,
-      estadoId // Debe venir del body, por ejemplo: 1 = pendiente
+      estadoId
     } = req.body;
 
     let urlFoto = null;
@@ -25,13 +26,46 @@ const crearObjetoPerdido = async (req, res) => {
       nombre_objeto,
       descripcion,
       fecha_perdida,
-      hora_perdida, // Si se usa, debe venir del body
+      hora_perdida,
       lugar,
       laboratorio,
       urlFoto,
       estadoId,
       usuarioId
     );
+
+    // --- Notificación por correo ---
+    // Obtener datos del usuario
+    const [usuarioRows] = await dbGestionNovedades.query(
+      'SELECT nombre, correo FROM usuarios WHERE id = ?',
+      [usuarioId]
+    );
+    const usuario = usuarioRows[0];
+
+    // Leer plantilla y reemplazar marcadores
+    const templatePath = path.join(__dirname, '../templates/objetoCreado.html');
+    let html = fs.readFileSync(templatePath, 'utf8');
+    html = html
+      .replace('{{nombre}}', usuario.nombre)
+      .replace('{{descripcion}}', descripcion)
+      .replace('{{fecha}}', fecha_perdida)
+      .replace('{{lugar}}', lugar);
+
+    // Enviar correo
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: usuario.correo,
+      subject: 'Objeto perdido registrado',
+      html
+    });
 
     res.status(201).json({
       success: true,
@@ -41,7 +75,7 @@ const crearObjetoPerdido = async (req, res) => {
         nombre_objeto,
         descripcion,
         fecha_perdida,
-        hora_perdida, // Si se usa, debe venir del body
+        hora_perdida,
         lugar,
         laboratorio,
         urlFoto,
@@ -78,16 +112,52 @@ const obtenerObjetosPerdidos = async (req, res) => {
 // Cambiar estado de objeto perdido (solo jefe)
 const actualizarEstadoObjetoPerdido = async (req, res) => {
   try {
-    // Solo permitir si el usuario es jefe
     if (!['jefe', 'admin', 'tecnico'].includes(req.user.rol.toLowerCase())) {
       return res.status(403).json({ message: 'No autorizado' });
     }
     const { id } = req.params;
-    const { estadoId } = req.body;
+    const { estadoId, detalle } = req.body;
+
     const affectedRows = await ObjetosPerdidoosRepository.actualizarEstadoObjetoPerdido(id, estadoId);
     if (affectedRows === 0) {
       return res.status(404).json({ message: 'Objeto perdido no encontrado' });
     }
+
+    // --- Notificación por correo ---
+    // Obtener datos del usuario dueño del objeto
+    const [usuarioRows] = await dbGestionNovedades.query(
+      `SELECT u.nombre, u.correo 
+       FROM usuarios u 
+       JOIN objetos_perdidos o ON u.id = o.usuarioId 
+       WHERE o.id = ?`,
+      [id]
+    );
+    const usuario = usuarioRows[0];
+
+    // Leer plantilla y reemplazar marcadores
+    const templatePath = path.join(__dirname, '../templates/objetoEstado.html');
+    let html = fs.readFileSync(templatePath, 'utf8');
+    html = html
+      .replace('{{nombre}}', usuario.nombre)
+      .replace('{{estado}}', estadoId)
+      .replace('{{detalle}}', detalle || 'Sin detalles adicionales.');
+
+    // Enviar correo
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: usuario.correo,
+      subject: 'Actualización de estado de tu objeto perdido',
+      html
+    });
+
     res.json({ message: 'Estado actualizado correctamente' });
   } catch (error) {
     res.status(500).json({

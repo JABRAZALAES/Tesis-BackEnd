@@ -35,9 +35,17 @@ const crearUsuario = async ({ correo, nombre, contrasena, rol = 'normal' }) => {
     throw error;
   }
 };
+async function actualizarContrasena(usuarioId, hash) {
+  await dbGestionNovedades.query(
+    'UPDATE usuarios SET contrasena = ? WHERE id = ?',
+    [hash, usuarioId]
+  );
+}
 
 module.exports = {
   obtenerPorCorreo,
   obtenerPorId,
   crearUsuario,
+  actualizarContrasena,
+
 };

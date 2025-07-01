@@ -6,6 +6,8 @@ const inconvenientesRoutes = require('./inconvenientesRoutes'); // Agrega esta l
 const computadorasRoutes = require('./computadorasRoutes');
 const laboratoriosRoutes = require('./laboratoriosRoutes');
 const reportesRoutes = require('./reportesRoutes');
+const authRoutes = require('./auth.routes');
+
 
 function routerApi(app) {
   const router = express.Router();
@@ -17,6 +19,9 @@ function routerApi(app) {
   router.use('/computadoras', computadorasRoutes);
   router.use('/laboratorios', laboratoriosRoutes);
   router.use('/reportes', reportesRoutes);
+  router.use('/auth', authRoutes); // <--- Aquí va la ruta de autenticación
+  
+
 
 
 
