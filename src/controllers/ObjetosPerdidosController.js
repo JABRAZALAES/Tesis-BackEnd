@@ -1,5 +1,6 @@
 const ObjetosPerdidoosRepository = require('../repositories/ObjetosPerdidoosRepository');
 const objetosPerdidosService = require('../services/objetosPerdidosService'); // Importa el servicio
+const { dbGestionNovedades } = require('../config/db');
 const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');

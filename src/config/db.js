@@ -1,5 +1,6 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
+module.exports = { dbGestionNovedades };
 
 const dbGestionNovedades = mysql.createPool({
   host: process.env.DB_ESCRITURA_HOST || 'localhost',
